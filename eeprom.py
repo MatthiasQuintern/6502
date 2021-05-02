@@ -112,7 +112,7 @@ def erase(from_ad=0, to_ad=32767, **keys):
     return
 
 
-def read(from_ad=0, to_ad=255, delay=1e-3, ignore=[0xff], verbose=True, single_step=False):
+def read(from_ad=0, to_ad=255, delay=1e-3, ignore=[0xff], verbose=True, single_step=False, compare=None):
     """
     from_ad:    start address from where to read
     to_ad:      end address to read to
@@ -151,8 +151,12 @@ def read(from_ad=0, to_ad=255, delay=1e-3, ignore=[0xff], verbose=True, single_s
         
         content.append(byte)
         
-        if verbose and not (int(byte, 2) in ignore):
+        if not compare and verbose and not (int(byte, 2) in ignore):
             print(f"Reading:\t0b{format(int(ad_bin, 2), '015b')} - 0b{byte} ||| 0x{format(i, '04x')} - {hex(int(byte, 2))}")
+        
+        if compare:
+            if not compare[i] == int(byte, 2):
+                print(f"Unequal at Address {format(i, '04x')} ||| File: {format(compare[i], '02x')} vs EEPROM: {format(int(byte, 2), '02x')}")
 
         # wait artifical delay
         sleep(delay)
@@ -165,6 +169,12 @@ def read(from_ad=0, to_ad=255, delay=1e-3, ignore=[0xff], verbose=True, single_s
     sleep(1)
     return content
 
+def compare(filepath, **keys):
+    with open(filepath, "rb") as file:
+        bindata = []
+        for byte in file.read(): 
+            bindata.append(byte)
+    read(**keys, compare=bindata)
 
 def write(content: list, from_ad=0, delay=0, single_step=False, verbose=True):
     """
@@ -286,7 +296,11 @@ if len(argv) > 1:
                 content[i] = int(content[i].replace("0x", ""), 16)
         elif arg == "-r":
             action = "read"
-            verbose=True
+            verbose = True
+        elif argv[i-1] == "-c":
+            action = "compare"
+            file = arg
+            verbose = True
         elif arg == "-e":
             action = "erase"
         elif arg == "-h":
@@ -322,14 +336,17 @@ elif action == "write_hex":
     write(content, from_ad=from_ad, delay=delay, single_step=single_step, verbose=verbose)
 elif action == "read":
     read(from_ad=from_ad, to_ad=to_ad, delay=delay, single_step=single_step, verbose=verbose, ignore=ignore)
+elif action == "compare":
+    compare(file, from_ad=from_ad, to_ad=to_ad, delay=delay, single_step=single_step, verbose=verbose)
 elif action == "erase":
     erase(from_ad=from_ad, to_ad=to_ad, delay=delay, single_step=single_step, verbose=verbose)
 elif action == "help":
     print("""
 program options:
     -w  file        write file
-    -e              erase eeprom
-    -r              read eeprom
+    -e              erase EEPROM
+    -c              compare EEPROM content to binary file 
+    -r              read EEPROM
     -h              print this
     --from x        start at address x (can be int or hex with '0x' prefix))
     --to y          end at address y
