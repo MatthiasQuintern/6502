@@ -1,0 +1,130 @@
+; RAM VARIABLES
+LCD_CHARCOUNT = $300
+TO_PRINT = $301  ; message can be from $301 to $341
+
+; LCD Control 
+LCD_E = %10000000
+LCD_RW = %01000000
+LCD_RS = %00100000
+LCD_CLEAR = %00000000
+; LCD Instructions
+LCD_CD = %00000001  ; clear display
+LCD_ON = %00001111  ; everything on
+LCD_SC = %00000110  ; shift cursor
+; LCD Constants
+LCD_L1 = $00        ; line 1
+LCD_L2 = $40
+LCD_L3 = $10
+LCD_L4 = $50
+
+;********************************************************************************
+; PRINTING TO LCD
+; to print something, load the message to address TO_PRINT
+;********************************************************************************
+lcd_clear:              ; clear lcd and print word located at message
+    stz LCD_CHARCOUNT
+    lda #LCD_CLEAR
+    jsr lcd_cmd
+    lda #(%10000000 | LCD_L1)
+    jsr lcd_cmd
+    rts
+print_clear:
+    stz LCD_CHARCOUNT
+    lda #LCD_CLEAR
+    jsr lcd_cmd
+    lda #(%10000000 | LCD_L1)
+    jsr lcd_cmd
+print:
+    ldx #$00
+print_:
+    lda TO_PRINT,x
+    beq print_end
+    jsr lcd_char
+    inx
+    bra print_
+print_end:
+    rts
+
+;********************************************************************************
+; LCD Commands
+;********************************************************************************
+; read busy flag
+lcd_wait:
+    pha             ; push A on stack
+    stz DDRB1  ; set IO1-PB1 to input
+lcd_wait_:     ; read the busy flag
+    lda #LCD_RW
+    sta PA1
+    lda #(LCD_RW | LCD_E)
+    sta PA1
+    
+    lda PB1
+    and #%10000000   ; and updates zero flag, if not set retry
+    bne lcd_wait_
+    
+    lda #LCD_CLEAR
+    sta PA1
+    lda #%11111111   ; set IO1-PB1 to output
+    sta DDRB1
+    pla              ; pull A back from stack
+    rts
+    
+lcd_cmd:    
+    jsr lcd_wait
+
+    sta PB1
+    lda #LCD_CLEAR
+    sta PA1
+    lda #LCD_E
+    sta PA1
+    lda #LCD_CLEAR
+    sta PA1
+    rts
+
+lcd_char:
+    pha
+    jsr lcd_wait
+    sta PB1
+    lda #LCD_RS
+    sta PA1
+    lda #(LCD_RS | LCD_E) 
+    sta PA1
+    lda #LCD_RS
+    sta PA1
+    inc LCD_CHARCOUNT
+    jsr lcd_set_address
+    pla ; put char back in a
+    rts
+
+;********************************************************************************
+; Set the LCD DD-RAM Address so that text linebreaks after 16 chars
+;********************************************************************************
+lcd_set_address:
+    lda LCD_CHARCOUNT
+    beq lcd_line1
+    cmp #$10
+    beq lcd_line2
+    cmp #$20
+    beq lcd_line3
+    cmp #$30
+    beq lcd_line4
+    cmp #$40  ; set to line1 when full  ; set to line1 when full
+    beq lcd_line1 
+    rts
+lcd_line1:
+    stz LCD_CHARCOUNT
+    lda #(%10000000 | LCD_L1)
+    jsr lcd_cmd
+    rts
+lcd_line2:
+    lda #(%10000000 | LCD_L2)
+    jsr lcd_cmd
+    rts
+lcd_line3:
+    lda #(%10000000 | LCD_L3)
+    jsr lcd_cmd
+    rts
+lcd_line4:
+    lda #(%10000000 | LCD_L4)
+    jsr lcd_cmd
+    rts

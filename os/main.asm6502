@@ -1,0 +1,179 @@
+; reserved RAM addresses
+; 0000 - free to use if zp needed
+; 0100 - 01FF Stack
+; 0200,0201 keybuffer write/read pointer
+; 0202 - 02ff keybuffer
+; 0300 lcd character counter
+; 0301 - 0341 message to print
+; 0400, 0401, 0402 dht status, dht bit, dht_bit_rot
+; 0403 value offset
+; 0405 - 04a0 rh high/low, temp high/low, checksum
+
+
+; IO-1
+PB1 = $6000
+PA1 = $6001
+DDRB1 = $6002
+DDRA1 = $6003
+T1L1 = $6004
+T1H1 = $6005
+; IO-2
+PB2 = $7000
+PA2 = $7001
+DDRB2 = $7002
+DDRA2 = $7003
+T1L2 = $7004
+T1H2 = $7005
+ACR2 = $700b
+PCR2 = $700c
+IFR2 = $700d
+IER2 = $700e
+
+    .org $8000  ; EEPROM Start Address
+;********************************************************************************    
+; Interrupts
+;********************************************************************************    
+nmi:
+    rti
+irq:
+    ; pha
+    ; phx
+    lda IFR2
+    sta 0
+    ora #%10100000
+    ;  jsr lcd_char  ;TODO: Remove
+    jsr read_keypad
+    rti
+    bbs 1,0,irq_keypad
+    lda #"-"
+    jsr lcd_char
+    bbs 4,0,irq_dht
+    bbs 6,0,irq_dht
+    rti
+irq_keypad:
+    jsr read_keypad
+    rti
+irq_dht:
+    lda T1L2  ; clear interrupt flag
+    jsr dht_irq
+    rti
+;********************************************************************************    
+; Reset sequence
+;********************************************************************************    
+reset:
+    ; INIT LCD
+    lda #$ff  ; PB1 0-7 output
+    sta DDRB1
+    lda #%11100000 ; PA1 5-7 output
+    sta DDRA1
+
+    ; clear_lcd: 
+    lda #%00111000  ; 8-bit, 4 zeilen
+    jsr lcd_cmd
+    lda #%00001111  ; lcd on
+    jsr lcd_cmd
+    lda #LCD_CD     ; clear display
+    jsr lcd_cmd
+    lda #%00000110  ; auto shift, kein scrollen    
+    jsr lcd_cmd
+    ; set charcount to 0
+    stz LCD_CHARCOUNT
+
+    ; INIT KEYPAD 
+    lda #%00001111; PB2 0-3 output
+    sta DDRB2
+    stz PB2        ; PB2 4-7 1 so keypad press can be detected
+    stz ACR2
+
+    lda #%10010000  ; enable interrupt for CB1 on IO2
+    sta IER2
+    lda #%00010000  ; set CB1 to interrupt on pos. edge
+    sta PCR2
+    jsr init_kb  ; init keybuffer
+
+    ; INIT DHT
+    lda #%11000010  ; enable interrupt for Timer 1 and CA1 on IO2
+    sta IER2
+    lda #%00111111  ; set Timer 1 to interrupt when loaded
+    and ACR2
+    sta ACR2
+    lda #%00000001  ; set PCR2 bit 0 CA1 pos edge interrupt
+    ora PCR2
+    sta PCR2 
+    stz DHT_STATUS
+
+    ; enable interrupts
+    cli
+ 
+return_home:
+    ldx #$00
+return_home_:
+    lda menu,x
+    sta TO_PRINT,x
+    inx
+    bne return_home_
+    jsr print_clear
+
+home:
+    jsr read_kb
+    beq home
+    cmp #"A"
+    beq printer
+    cmp #"B"
+    beq dht_request
+    cmp #"C"
+    beq print_1
+    cmp #"D"
+    beq print_2
+
+    cmp #"*"  ; print home menu again if not visible (message 1 and 2 jmp to home)
+    beq return_home
+
+    bra home
+
+print_1:
+    ldx #$00
+print_1_:
+    lda message_1,x
+    sta TO_PRINT,x
+    inx
+    bne print_1_
+    jsr print_clear
+    jmp home
+
+print_2:
+    ldx #$00
+print_2_:
+    lda message_2,x
+    sta TO_PRINT,x
+    inx
+    bne print_2_
+    jsr print_clear
+    jmp home
+
+message_1: .asciiz "   Powered by   ......6502......      ****      www.quintern.xyz"
+message_2: .asciiz "      Danke        fuer  eure    Aufmerksamkeit        ;)       " 
+menu: 
+    .byte   "<A> Printer     "
+    .byte   "<B> Temperatur  "
+    .byte   "<C> Text 1      "
+    .asciiz "<D> Text 2      "
+;********************************************************************************    
+; Modules
+;********************************************************************************    
+; LCD 
+    include lcd.asm6502
+; Keypad Reading
+    include keypad.asm6502
+; Printer
+    include printer.asm6502
+; Digital Humidity and Temerature Sensor
+    include dht.asm6502
+;********************************************************************************
+; reset vector
+;********************************************************************************
+    .org $fffa
+    .word nmi     
+    .word reset
+    .word irq
+

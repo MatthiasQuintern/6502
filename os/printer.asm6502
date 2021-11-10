@@ -1,0 +1,17 @@
+;********************************************************************************
+; Printing Program
+;********************************************************************************
+printer:
+    stz LCD_CHARCOUNT
+    lda #%10000000
+    jsr lcd_cmd
+    lda #LCD_CD
+    jsr lcd_cmd
+printer_:
+    jsr read_kb
+    beq printer_
+    cmp #"*"
+    beq return_home
+    jsr lcd_char
+    bra printer_
+

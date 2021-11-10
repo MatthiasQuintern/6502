@@ -1,0 +1,84 @@
+;********************************************************************************
+; Keypad Buffer from $202 to $2ff
+;********************************************************************************
+kb_var = $00
+kb_write = $200
+kb_read = $201
+kb_start = $202
+kb_length = $fd
+
+init_kb:
+    stz kb_write
+    stz kb_read
+    ; write null to entire buffer
+    ldx #$00
+init_kb_:
+    stz kb_start,x
+    inx
+    cpx #kb_length
+    bne init_kb_
+    rts
+
+; write to keybuffer
+write_kb:
+    lda keypad_values, x  ; load the char in a
+    ldx kb_write
+    sta kb_start,x
+    inx  ; increment kb_write pointer
+    cpx #kb_length
+    beq jump_write_kb
+    stx kb_write
+    rts
+jump_write_kb:  ; when the end of the buffer is reached, the next keys go to the start again
+    stz kb_write
+    rts
+; read from keybuffer, if empty null will be read
+read_kb:
+    ldx kb_read
+    lda kb_start,x
+    beq read_kb_rts  ; if a buffer is null, dont increment kb_read
+    stz kb_start,x  ; set buffer location to null
+    inx  ; increment kb_read pointer
+    cpx #kb_length
+    beq jump_read_kb
+    stx kb_read 
+read_kb_rts:
+    rts
+jump_read_kb:
+    stz kb_read
+    rts
+;********************************************************************************
+; Reading the Keypad 
+;********************************************************************************
+read_keypad:  ; test each "row" and check which column is 1
+    lda #%00001110
+    ldx #$00
+    jsr read_keypad_branch
+    lda #%00001101
+    ldx #$04
+    jsr read_keypad_branch
+    lda #%00001011
+    ldx #$08
+    jsr read_keypad_branch
+    lda #%00000111
+    ldx #$0c
+    jsr read_keypad_branch
+read_keypad_rts:
+    stz PB2
+    lda PB2  ; read to definetly clear the interrupt flag
+    rts
+read_keypad_branch:
+    sta PB2
+    lda PB2
+    sta kb_var  ; store result in zeropage so that bbr can be used
+    bbr 4,kb_var,write_kb
+    inx
+    bbr 5,kb_var,write_kb
+    inx
+    bbr 6,kb_var,write_kb
+    inx
+    bbr 7,kb_var,write_kb
+    rts
+keypad_values:
+    .ascii "123A","456B","789C","*0#D" 
+

@@ -1,0 +1,153 @@
+DHT_REQUEST_L = $00
+DHT_REQUEST_H = %01010000  ; = 20480 PHI2 pulses = 20,5 ms at 1 MHz
+
+DHT_RECV_H = %10011100
+DHT_RECV_L = %01000000  ; = 40000 PHI2 = 40ms
+
+; Status Variables, Used to determine what is sent by temp module
+DHT_STATUS = $400
+DHT_NONE = 0
+DHT_WAIT_REQ = 1
+DHT_WAIT_RESP = 2
+DHT_RECV = 3
+DHT_DONE = 4
+
+DHT_BIT = $401
+DHT_BIT_ROT = $402
+
+
+DHT_VALUES = $405  ; 
+DHT_OFFSET = $403
+DHT_OFF_RH_HIGH = 0  ; offsets to DHT_VALUES
+DHT_OFF_RH_LOW = 1
+DHT_OFF_T_HIGH = 2
+DHT_OFF_T_LOW = 3
+DHT_OFF_CHECKSUM = 4
+DHT_OFF_DONE = 5
+
+
+message_dht:  .asciiz "DHT-Request gesendet."
+dht_wait:
+    ldx #$00
+dht_wait_:
+    lda message_dht,x
+    sta TO_PRINT,x
+    inx
+    bne dht_wait_
+    jsr print_clear
+dht_wait_loop:  ; check after every interrpt if dht program is done and then return home
+    lda #"."
+    jsr lcd_char
+    wai
+    lda DHT_STATUS
+    cmp #DHT_DONE
+    bne dht_wait_loop
+
+dht_exit:
+    jsr read_kb
+    cmp #"*"
+    beq home
+    bra dht_exit
+    jmp return_home
+
+dht_request:  ; send request to sensor
+    sei
+    
+    lda #%00000001 ; set PA1-0 to output 0
+    ora DDRA1
+    sta DDRA1
+    lda #(LCD_CLEAR | $00)
+    sta PA1
+    
+    ; start timer
+    lda #DHT_REQUEST_L
+    sta T1L1
+    lda #DHT_REQUEST_H
+    sta T1H1
+
+    lda #DHT_WAIT_REQ
+    sta DHT_STATUS
+
+    cli
+    jmp dht_wait
+
+
+dht_request_end:
+    lda #%10000010
+    sta IER2  ; enable Interrupt for CA1
+    lda #%11111110
+    and DDRA1
+    sta DDRA1  ; set PA1-0 to input
+
+    lda #DHT_WAIT_RESP
+    
+
+
+dht_response:  ; receive response from sensor
+    lda #DHT_RECV
+    sta DHT_STATUS
+    stz DHT_OFFSET
+    lda #7
+    sta DHT_BIT
+
+dht_recv:
+    ; start timer
+    lda #DHT_RECV_L
+    sta T1L1
+    lda #DHT_RECV_H
+    sta T1H1
+    rts
+
+dht_recv_read:
+    ; read PA2
+    lda PA2
+    and #%00000001
+    ldx DHT_BIT
+    beq dht_recv_end
+dht_recv_rot:
+    rol
+    dex
+    bne dht_recv_rot
+dht_recv_end:
+    ldy DHT_OFFSET
+    ora DHT_VALUES,y
+    sta DHT_VALUES,y
+    ; determine if 8 bits are done
+    ldx DHT_BIT
+    beq dht_recv_next
+    rts
+dht_recv_next:
+    lda #7
+    sta DHT_BIT
+    inc DHT_OFFSET
+    cmp DHT_OFF_DONE
+    beq dht_display
+    rts
+
+dht_display:
+    ldx #0
+dht_display_:
+    lda DHT_VALUES,x
+    sta TO_PRINT,x
+    inx
+    cpx #5
+    bne dht_display_
+    jsr print_clear
+    rts
+
+dht_irq:
+    lda DHT_STATUS
+    cmp #DHT_WAIT_REQ
+    beq dht_request_end
+    cmp #DHT_WAIT_RESP
+    beq dht_response
+    cmp #DHT_RECV
+    beq dht_recv
+    rts 
+     
+
+
+
+
+
+
